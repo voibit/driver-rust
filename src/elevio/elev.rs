@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::convert::TryFrom;
 use std::fmt;
 use std::io::*;
 use std::net::TcpStream;
@@ -11,13 +12,33 @@ pub struct Elevator {
     pub num_floors: u8,
 }
 
-pub const HALL_UP: u8 = 0;
-pub const HALL_DOWN: u8 = 1;
-pub const CAB: u8 = 2;
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[repr(u8)]
+pub enum Direction {
+    Stop = 0,
+    Up = 1,
+    Down = 255,
+}
 
-pub const DIRN_DOWN: u8 = u8::MAX;
-pub const DIRN_STOP: u8 = 0;
-pub const DIRN_UP: u8 = 1;
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[repr(u8)]
+pub enum Call {
+    Up = 0,   // Outside elevator, hall
+    Down = 1, // Outside elevator, hall
+    Cab = 2,  // Inside elevator, command
+}
+
+impl TryFrom<u8> for Call {
+    type Error = &'static str;
+    fn try_from(v: u8) -> std::result::Result<Self, Self::Error> {
+        match v {
+            x if x == Call::Up as u8 => Ok(Call::Up),
+            x if x == Call::Down as u8 => Ok(Call::Down),
+            x if x == Call::Cab as u8 => Ok(Call::Cab),
+            _ => Err("Not valid"),
+        }
+    }
+}
 
 impl Elevator {
     pub fn init(addr: &str, num_floors: u8) -> Result<Elevator> {
@@ -27,14 +48,14 @@ impl Elevator {
         })
     }
 
-    pub fn motor_direction(&self, dirn: u8) {
-        let buf = [1, dirn, 0, 0];
+    pub fn motor_direction(&self, dirn: Direction) {
+        let buf = [1, dirn as u8, 0, 0];
         let mut sock = self.socket.lock().unwrap();
         sock.write(&buf).unwrap();
     }
 
-    pub fn call_button_light(&self, floor: u8, call: u8, on: bool) {
-        let buf = [2, call, floor, on as u8];
+    pub fn call_button_light(&self, floor: u8, call: Call, on: bool) {
+        let buf = [2, call as u8, floor, on as u8];
         let mut sock = self.socket.lock().unwrap();
         sock.write(&buf).unwrap();
     }
@@ -57,7 +78,14 @@ impl Elevator {
         sock.write(&buf).unwrap();
     }
 
-    pub fn call_button(&self, floor: u8, call: u8) -> bool {
+    pub fn call_button(&self, floor: u8, call: Call) -> bool {
+        let mut buf = [6, call as u8, floor, 0];
+        let mut sock = self.socket.lock().unwrap();
+        sock.write(&mut buf).unwrap();
+        sock.read(&mut buf).unwrap();
+        buf[1] != 0
+    }
+    pub fn call_button_raw(&self, floor: u8, call: u8) -> bool {
         let mut buf = [6, call, floor, 0];
         let mut sock = self.socket.lock().unwrap();
         sock.write(&mut buf).unwrap();
